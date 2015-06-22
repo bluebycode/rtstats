@@ -1,83 +1,116 @@
 var WebSocketServer = require('ws').Server,
     wss = new WebSocketServer({ port: 8001 }),
-    _ = require('underscore');
+    Q = require('q');
 
 var redis = require('redis'),
-    client = redis.createClient(6380, 'box2.omnidrone.net'),
-    client2 = redis.createClient(6380, 'box2.omnidrone.net');
+    topics = redis.createClient(6380, 'box2.omnidrone.net'),
+    client = redis.createClient(6380, 'box2.omnidrone.net');
 
-    //redis.debug_mode = true;
-
-var util  = require('util');
-
-var Q = require('q');
-
+    // redis.debug_mode = true;
 wss.broadcast = function broadcast(data) {
   var i = 0;
   wss.clients.forEach(function each(client) {
-    console.log('sending to client ', i++);
+    console.log('Sending to client ', i++);
     client.send(data);
   });
 };
 
 wss.on('connection', function connection(ws) {
-  console.log('client connected!!',ws);
+  console.log('Client connected');
   ws.on('message', function incoming(message) {
-    console.log('received: %s', message);
+    console.log('received message from client: %s', message);
+    //@todo: if we receive get..just send the info
   });
 });
 
-var data = [ [ 1434585600000 , 10] , [ 1434672000000 , 256] ,[ 1434758400000 , 100] , [ 1434844800000 , 156] ];
-var beginning = 0;
-var eventObject = function(evt, object){
-  return {
-    event: evt,
-    data: object
+var mod = {};
+(function(container){
+  var eventObject = function(evt, object){
+    return {
+      event: evt,
+      data: object
+    };
   };
-};
 
-client.subscribe('users');
+  var createConnection = function(source){
+    return redis.createClient(source.port, source.host);
+  };
 
-var getPerDays = function(days){
-  var deferred = Q.defer();
-  client2.multi(_.map(days, function(day){
-    return ['bitcount','users:day:'+day];
-  })).exec(function (err, replies) {
-    deferred.resolve(replies);
-  });
-  return deferred.promise;
-};
+  var timestampsPerDays = function(days){
+    var timestamps = [];
+    for (var day=days;day>0;day--){
+      var date = new Date();
+      date.setHours(0,0,0,0);
+      date.setDate(date.getDate() - day);
+      timestamps.push(date.getTime());
+    }
+    return timestamps;
+  };
 
-var getPerTimestamps = function(timestamps){
-  var deferred = Q.defer();
-  client2.multi(_.map(days, function(day){
-    return ['bitcount','users:day:'+day];
-  })).exec(function (err, replies) {
-    deferred.resolve(replies);
-  });
-  return deferred.promise;
-};
+  container.Resources = function(configuration){
+    var self = this;
+    this._topics = configuration.topics;
 
-client.on('message', function(channel, message){
-  console.log('received on channel: ', channel, ', message: ', message);
-  if (channel === 'users'){
-    getPerDays(['18062015','19062015','20062015','21062015','22062015'])
-      .then(function(ups){
-        console.log('everything', ups);
-    });
+    this._topics_conn = createConnection(configuration.source);
+    this._client_conn = createConnection(configuration.source);
+
+    for (var topic in this._topics){
+      if (!this._topics[topic]) return;
+      console.log('Subscribing "' + topic+'"');
+      this._topics_conn.subscribe(topic);
+    }
+
+    if (this._topics){
+      this._topics_conn.on('message', function(channel, message){
+        console.log('received on channel: ', channel, ', message: ', message);
+        if (self._topics[channel]){
+          console.log('configuration found for this channel:', channel, self._topics[channel]);
+
+          self._topics[channel].forEach(function(resource){
+            console.log('resource:', resource.id);
+            if (resource.type === 'days') {
+              var timestamps = timestampsPerDays(resource.rows);
+              self._getPerTimestamps(timestamps)
+                .then(function(returned){
+                  // returned data
+                  var data = returned.map(function(e,i){
+                    return [timestamps[i],e];
+                  });
+
+                  // sending by websocket clients
+                  wss.broadcast(JSON.stringify(eventObject(resource.id, data)));
+              });
+            }
+          });
+        }
+      });
+    }
+    this._getPerTimestamps = function(timestamps){
+        try {
+          var deferred = Q.defer();
+          this._client_conn.multi(timestamps.map(function(day){
+            return ['bitcount','users:day:'+day];
+          })).exec(function (err, replies) {
+            deferred.resolve(replies);
+          });
+          return deferred.promise;
+        }catch(err){
+          console.log(err);
+        }
+    };
+  };
+
+})(mod);
+
+var resources = new mod.Resources({
+  source: { host: 'box2.omnidrone.net', port: 6380 },
+  topics: { 'users': [
+    {
+      id: 'usersPerDay',
+      type: 'days',
+      rows: 5
+    }]
   }
 });
 
-setInterval(function(){
-  console.log('sending broadcast data');
-  try {
-      beginning+=10;
-      var result = _.map(data, function(e){
-        return [e[0],e[1]+beginning];
-      });
-      wss.broadcast(JSON.stringify(eventObject('dau', result)));
-    }catch(er){
-      console.log(er);
-    }
 
-},2000);
