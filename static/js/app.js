@@ -1,21 +1,32 @@
 
 var app = angular.module('app', ['nvd3ChartDirectives','ngWebSocket']);
 
-app.factory('UsersPerDay', function($websocket) {
-  var dataStream = $websocket('ws://localhost:8001');
-
-  var updated = [{
-    key: 'daily',
-    values: []
-  }];
-
-  dataStream.onMessage(function(message) {
-    var event = message.event,
-        data = JSON.parse(message.data).data;
-    updated[0].values = data;
-  });
-  return updated;
+app.factory('Configuration', function() {
+  return {
+    resource: {
+      'UsersPerDay': 'ws://localhost:8001/usersPerDay'
+    }
+  };
 });
+
+app.factory('WebsocketResource', ['$websocket','Configuration', function($websocket, Configuration) {
+  return function(id){
+    var stream = $websocket(Configuration.resource[id]),
+        values = [{
+                    key: id,
+                    values: []
+                   }];
+
+    stream.onMessage(function(message) {
+      values[0].values = JSON.parse(message.data).data;
+    });
+    return values;
+  };
+}]);
+
+app.factory('UsersPerDay', ['WebsocketResource', function(WebsocketResource) {
+  return WebsocketResource('UsersPerDay');
+}]);
 
 app.controller('usersController', ['$scope','UsersPerDay', function($scope, UsersPerDay) {
   $scope.usersPerDay = UsersPerDay;
