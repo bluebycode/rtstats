@@ -3,8 +3,8 @@ var WebSocketServer = require('ws').Server,
     Q = require('q');
 
 var redis = require('redis'),
-    topics = redis.createClient(6380, 'box2.omnidrone.net'),
-    client = redis.createClient(6380, 'box2.omnidrone.net');
+    topics = redis.createClient(6380, 'box.vrandkode.net'),
+    client = redis.createClient(6380, 'box.vrandkode.net');
 
     // redis.debug_mode = true;
 wss.broadcast = function broadcast(data) {
