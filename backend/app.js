@@ -103,7 +103,7 @@ var mod = {};
 })(mod);
 
 var resources = new mod.Resources({
-  source: { host: 'box2.omnidrone.net', port: 6380 },
+  source: { host: 'box.vrandkode.net', port: 6380 },
   topics: { 'users': [
     {
       id: 'usersPerDay',
